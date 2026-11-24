@@ -1,0 +1,116 @@
+# Regenerates parse/parser.go from parse/parser.go.y with goyacc, commits it
+# back to the branch, then builds and runs the tests.
+#
+# Run it by pushing a change to parse/parser.go.y, or manually from the
+# Actions tab ("Run workflow"). The result is saved two ways: as a commit on
+# the branch, and as a downloadable artifact (parser.go and the logs). The
+# goyacc output and the test results are also shown on the run's Summary page.
+#
+# Logs are written to $RUNNER_TEMP, outside the checkout, so they can never end
+# up in a commit.
+#
+# Needs: Settings > Actions > General > Workflow permissions > Read and write.
+name: regenerate-parser
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'parse/parser.go.y'
+
+permissions:
+  contents: write
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Install Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: stable
+    - name: Install goyacc
+      run: go install golang.org/x/tools/cmd/goyacc@latest
+    - name: Regenerate parser.go
+      shell: bash
+      working-directory: parse
+      run: |
+        mkdir -p "$RUNNER_TEMP/results"
+        "$(go env GOPATH)/bin/goyacc" -o parser.go parser.go.y 2>&1 | tee "$RUNNER_TEMP/results/goyacc.log"
+        rm -f y.output
+    - name: Commit parser.go
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add parse/parser.go
+        if git diff --cached --quiet; then
+          echo "parser.go is already up to date"
+        else
+          git commit -m "Regenerate parse/parser.go with goyacc"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+        fi
+    - name: Inline, format and build
+      run: |
+        ./_tools/go-inline *.go
+        go fmt ./...
+        go build ./...
+    - name: Commit formatting changes, if any
+      run: |
+        git add -u   # tracked files only, never new files
+        if git diff --cached --quiet; then
+          echo "nothing to format"
+        else
+          git commit -m "go fmt"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+        fi
+    - name: Run tests
+      id: tests
+      shell: bash
+      run: |
+        set +e
+        go test -v ./... 2>&1 | tee "$RUNNER_TEMP/results/test.log"
+        echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+    - name: Summarize
+      if: always()
+      shell: bash
+      run: |
+        R="$RUNNER_TEMP/results"
+        {
+          echo "## goyacc"
+          if [ -s "$R/goyacc.log" ]; then
+            echo '```'
+            cat "$R/goyacc.log"
+            echo '```'
+          else
+            echo "goyacc finished with no messages (no conflicts, no errors)."
+          fi
+          echo
+          echo "## Test results"
+          if [ "${{ steps.tests.outputs.status }}" = "0" ]; then
+            echo "All tests passed."
+          else
+            echo "Some tests failed. First failures, with context:"
+            echo '```'
+            grep -n -B15 -A25 -m3 -E '^[[:space:]]*--- FAIL|^panic:' "$R/test.log" | head -150
+            echo '```'
+            echo "Package results:"
+            echo '```'
+            grep -E '^(ok|FAIL|---|\?)[[:space:]]' "$R/test.log" | grep -v -E '^--- PASS'
+            echo '```'
+          fi
+        } > "$RUNNER_TEMP/summary.md"
+        cat "$RUNNER_TEMP/summary.md"
+        cat "$RUNNER_TEMP/summary.md" >> "$GITHUB_STEP_SUMMARY"
+    - name: Fail the job if tests failed
+      if: steps.tests.outputs.status != '0'
+      run: exit 1
+    - name: Collect parser.go
+      if: always()
+      run: cp parse/parser.go "$RUNNER_TEMP/results/parser.go"
+    - name: Save results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: regenerated-parser
+        path: ${{ runner.temp }}/results
