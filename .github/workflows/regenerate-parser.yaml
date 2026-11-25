@@ -1,22 +1,14 @@
 # Regenerates parse/parser.go from parse/parser.go.y with goyacc, commits it
 # back to the branch, then builds and runs the tests.
 #
-# Run it by pushing a change to parse/parser.go.y, or manually from the
-# Actions tab ("Run workflow"). The result is saved two ways: as a commit on
-# the branch, and as a downloadable artifact (parser.go and the logs). The
-# goyacc output and the test results are also shown on the run's Summary page.
-#
-# Logs are written to $RUNNER_TEMP, outside the checkout, so they can never end
-# up in a commit.
+# Run it manually from the Actions tab ("Run workflow") on the branch you want
+# to update. The regenerated parser.go is saved as a commit on that branch. The
+# goyacc output and the test results are shown on the run's Summary page.
 #
 # Needs: Settings > Actions > General > Workflow permissions > Read and write.
 name: regenerate-parser
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - 'parse/parser.go.y'
-
 permissions:
   contents: write
 
@@ -105,12 +97,3 @@ jobs:
     - name: Fail the job if tests failed
       if: steps.tests.outputs.status != '0'
       run: exit 1
-    - name: Collect parser.go
-      if: always()
-      run: cp parse/parser.go "$RUNNER_TEMP/results/parser.go"
-    - name: Save results
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: regenerated-parser
-        path: ${{ runner.temp }}/results
