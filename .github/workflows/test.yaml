@@ -2,6 +2,8 @@ on:
   pull_request:
   workflow_dispatch:
 name: test
+permissions:
+  contents: read
 jobs:
   test:
     strategy:
