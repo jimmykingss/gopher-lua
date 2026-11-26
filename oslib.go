@@ -1,6 +1,7 @@
 package lua
 
 import (
+	"math"
 	"os"
 	"strings"
 	"time"
@@ -17,7 +18,10 @@ func getIntField(L *LState, tb *LTable, key string, v int) int {
 
 	switch lv := ret.(type) {
 	case LNumber:
-		return int(lv)
+		if float64(lv) == float64(int64(lv)) && lv >= LNumber(math.MinInt32) && lv <= LNumber(math.MaxInt32) {
+			return int(lv)
+		}
+		return v
 	case LString:
 		slv := string(lv)
 		slv = strings.TrimLeft(slv, " ")
@@ -29,7 +33,9 @@ func getIntField(L *LState, tb *LTable, key string, v int) int {
 			}
 		}
 		if num, err := parseNumber(slv); err == nil {
-			return int(num)
+			if float64(num) == float64(int64(num)) && num >= LNumber(math.MinInt32) && num <= LNumber(math.MaxInt32) {
+				return int(num)
+			}
 		}
 	default:
 		return v
